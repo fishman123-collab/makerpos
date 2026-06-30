@@ -228,7 +228,7 @@ const app = createApp({
                 this.initLoading = false; 
                 this.initData();
              } else {
-                this.initMessage = "無系統存取權限！請聯絡管理員。";
+                this.initMessage = result.message || "無系統存取權限！請聯絡管理員。";
                 alert(this.initMessage);
                 this.initLoading = false;
              }

@@ -107,7 +107,7 @@ createApp({
                       localStorage.setItem('admin_user', JSON.stringify(result.user));
                       this.loadProducts();
                   } else {
-                      alert("您登入的 LINE 帳號無權限進入系統。");
+                      alert(result.message || "您登入的 LINE 帳號無權限進入系統。");
                       liff.logout();
                   }
                   this.loading = false;
