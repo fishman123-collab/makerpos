@@ -345,17 +345,10 @@ const app = createApp({
         this.showScanner = false;
     },
 
-    // 處理掃描後的字串
+    // 處理掃描後的字串 (直接套用折價券)
     handleScanResult(text) {
-       text = text.trim();
-       const product = this.products.find(p => String(p.sku).toUpperCase() === text.toUpperCase());
-       if (product) {
-           this.addToCart(product);
-           alert(`已加入購物車: ${product.name}`);
-       } else {
-           this.couponInput = text;
-           this.addCoupon();
-       }
+       this.couponInput = text.trim();
+       this.addCoupon();
     },
 
     onCustomerSelect() {

@@ -51,10 +51,6 @@
         </div>
         
         <div class="d-flex gap-2">
-            <!-- 掃描條碼按鈕 (呼叫 LIFF ScanCode) -->
-            <button class="btn btn-sm btn-success shadow-sm fw-bold px-3" @click="scanCode">
-               <i class="fa-solid fa-qrcode"></i> 掃描
-            </button>
             <button v-if="isAdmin" class="btn btn-sm btn-dark shadow-sm" @click="goToAdmin">
                <i class="fa-solid fa-gears"></i> 後台
             </button>
@@ -218,9 +214,12 @@
         
         <div class="input-group input-group-sm mb-2">
            <span class="input-group-text"><i class="fa-solid fa-ticket"></i></span>
-           <input type="text" class="form-control" v-model="couponInput" placeholder="輸入折價券代碼..." @keyup.enter="addCoupon">
+           <input type="text" class="form-control" v-model="couponInput" placeholder="輸入折價券..." @keyup.enter="addCoupon">
+           <button class="btn btn-outline-success px-3" @click="scanCode" title="掃描折價券">
+             <i class="fa-solid fa-qrcode"></i> 掃描
+           </button>
            <button class="btn btn-outline-primary" @click="addCoupon" :disabled="checkingCoupon">
-             <span v-if="checkingCoupon" class="spinner-border spinner-border-sm"></span> 加入
+             <span v-if="checkingCoupon" class="spinner-border spinner-border-sm"></span> 套用
            </button>
         </div>
         <div v-if="coupons.length > 0" class="mb-3">
