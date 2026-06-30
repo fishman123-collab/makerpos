@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>創客空間 POS</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app" class="container-fluid p-0" v-cloak>
+  
+  <!-- 全螢幕載入畫面 (等待 LIFF 初始化與登入驗證) -->
+  <div v-if="initLoading" class="d-flex flex-column justify-content-center align-items-center" style="height: 100vh; background-color: #f8f9fa; z-index: 9999; position: fixed; top: 0; left: 0; width: 100%;">
+    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+    <h4 class="text-secondary fw-bold">{{ initMessage }}</h4>
+  </div>
+
+  <div class="backdrop" :class="{show: showMobileCart}" @click="showMobileCart = false"></div>
+
+  <div class="row g-0">
+    
+    <div class="col-md-7 col-lg-8 product-panel">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center">
+            <img src="https://lh3.googleusercontent.com/d/1L2cXAzUEElQ3VVIduHXynYSXtV_QX1zr=w2560?authuser=1" style="width: 45px; height: 45px; margin-right: 12px; border-radius: 50%;">
+            <div>
+                <h5 class="fw-bold m-0 text-secondary">商品列表</h5>
+                <small class="text-muted" v-if="currentUser">{{ currentUser.name }} ({{ currentUser.role }})</small>
+            </div>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <!-- 掃描條碼按鈕 (呼叫 LIFF ScanCode) -->
+            <button class="btn btn-sm btn-success shadow-sm fw-bold px-3" @click="scanCode">
+               <i class="fa-solid fa-qrcode"></i> 掃描
+            </button>
+            <button v-if="isAdmin" class="btn btn-sm btn-dark shadow-sm" @click="goToAdmin">
+               <i class="fa-solid fa-gears"></i> 後台
+            </button>
+        </div>
+      </div>
+      
+      <div class="input-group input-group-sm mb-3">
+        <span class="input-group-text bg-white"><i class="fa-solid fa-search"></i></span>
+        <input type="text" class="form-control border-start-0" v-model="searchQuery" placeholder="搜尋名稱/SKU...">
+      </div>
+
+      <div class="mb-3">
+        <button class="btn btn-sm btn-outline-secondary category-btn" :class="{active: selectedCategory === 'all'}" @click="selectedCategory = 'all'">全部</button>
+        <button v-for="cat in categories" :key="cat" class="btn btn-sm btn-outline-secondary category-btn" :class="{active: selectedCategory === cat}" @click="selectedCategory = cat">{{ cat }}</button>
+      </div>
+
+      <div v-if="loading" class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+      <div class="row g-3" v-else>
+        <div class="col-6 col-md-4 col-lg-3" v-for="item in filteredProducts" :key="item.sku">
+          <div class="product-card h-100" :class="{'disabled-card': item.stock <= 0}" @click="addToCart(item)">
+            <div class="card-body">
+              <div class="fw-bold text-dark">{{ item.name }}</div>
+              <div class="small text-muted">{{ item.sku }}</div>
+              <div class="small"><span class="badge bg-light text-dark border">{{ item.category }}</span></div>
+              <div class="mt-auto d-flex justify-content-between align-items-end pt-2">
+                <div class="price-tag">${{ item.price }}</div>
+                <div class="stock-tag" :class="{zero: item.stock <= 0}">
+                  庫存: {{ item.stock === 999999999 ? '以現場庫存為準' : item.stock }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 購物車面板 -->
+    <div class="col-md-5 col-lg-4 cart-panel p-0" :class="{show: showMobileCart}">
+       
+       <div class="d-md-none text-center py-2 text-secondary border-bottom bg-light" @click="showMobileCart = false" style="cursor: pointer;">
+          <i class="fa-solid fa-chevron-down"></i> 收起購物車
+       </div>
+
+      <div class="cart-header">
+        <div class="text-center mb-2">
+          <div class="btn-group btn-group-sm" role="group">
+            <input type="radio" class="btn-check" name="mode" id="modeSales" value="sales" v-model="mode">
+            <label class="btn btn-outline-primary px-3" for="modeSales">一般結帳</label>
+            <input type="radio" class="btn-check" name="mode" id="modeInternal" value="internal" v-model="mode">
+            <label class="btn btn-outline-danger px-3" for="modeInternal">館員領用</label>
+          </div>
+        </div>
+        <div class="info-input-group">
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="small text-muted">經手人</label>
+              <input type="text" class="form-control form-control-sm form-control-highlight" v-model="operatorName" placeholder="館員/志工">
+            </div>
+            <div class="col-6 position-relative">
+              <label class="small text-muted" :class="{'text-danger': mode === 'internal'}">
+                {{ mode === 'sales' ? '讀者姓名' : '領用人' }}
+              </label>
+              
+              <input type="text" 
+                     class="form-control form-control-sm form-control-highlight" 
+                     v-model="customerName" 
+                     placeholder="輸入或選取今日預約..."
+                     @focus="showBookingList = true"
+                     @blur="hideBookingList">
+                     
+              <ul class="list-group position-absolute w-100 shadow"
+                  style="z-index: 1060; max-height: 200px; overflow-y: auto;"
+                  v-show="showBookingList && todayBookings.length > 0">
+                <li class="list-group-item list-group-item-action p-2 text-truncate"
+                    style="cursor: pointer; font-size: 0.9rem;"
+                    v-for="b in todayBookings" 
+                    :key="b.name"
+                    @mousedown.prevent="selectBooking(b.name)">
+                  {{ b.display !== b.name ? b.display : b.name }}
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div class="row g-2 mt-1" v-if="mode === 'internal'">
+             <div class="col-7"><input type="text" class="form-control form-control-sm" v-model="activityName" placeholder="活動名稱(必填)"></div>
+             <div class="col-5"><input type="date" class="form-control form-control-sm" v-model="internalDate"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cart-items py-3">
+        <div v-if="cart.length === 0" class="text-center text-muted mt-5">
+          <img src="https://lh3.googleusercontent.com/d/1L2cXAzUEElQ3VVIduHXynYSXtV_QX1zr=w2560?authuser=1" 
+               class="wabo-float" 
+               style="width: 120px; opacity: 0.9; margin-bottom: 20px;">
+          <br>
+          <i class="fa-solid fa-basket-shopping fa-2x mb-2 text-secondary"></i><br>
+          <span>購物車目前是空的，快找蛙寶選購吧！</span>
+        </div>
+        <table class="table table-sm align-middle" v-else>
+          <tbody>
+            <tr v-for="(item, index) in cart" :key="index" :class="{'table-light': item.isRedemption}">
+              <td style="width: 45%">
+                <div class="fw-bold">{{ item.name }}</div>
+                <div v-if="item.isAutoAdded" class="auto-added-tag"><i class="fa-solid fa-link"></i> 綁定</div>
+                <div v-if="item.isRedemption" class="gift-tag"><i class="fa-solid fa-gift"></i> 兌換贈品</div>
+                <div v-if="item.sourceCoupon" style="font-size:0.6em; color:#888;">來源: {{item.sourceCoupon}}</div>
+              </td>
+              <td style="width: 30%">
+                <div class="input-group input-group-sm">
+                  <button class="btn btn-outline-secondary px-2" 
+                          :style="{ visibility: (item.isRedemption || item.isAutoAdded) ? 'hidden' : 'visible' }"
+                          :disabled="item.isRedemption || item.isAutoAdded"
+                          @mousedown="startChangeQty(index, -1)" 
+                          @mouseleave="stopChangeQty" 
+                          @mouseup="stopChangeQty"
+                          @touchstart.prevent="startChangeQty(index, -1)" 
+                          @touchend="stopChangeQty">
+                    <i class="fa-solid fa-minus"></i>
+                  </button>
+
+                  <input type="number" class="form-control text-center px-0" 
+                         v-model.number="item.qty" readonly 
+                         :style="{ backgroundColor: (item.isRedemption) ? '#f8d7da' : 'white' }">
+
+                  <button class="btn btn-outline-secondary px-2" 
+                          :style="{ visibility: (item.isRedemption || item.isAutoAdded) ? 'hidden' : 'visible' }"
+                          :disabled="item.isRedemption || item.isAutoAdded"
+                          @mousedown="startChangeQty(index, 1)" 
+                          @mouseleave="stopChangeQty" 
+                          @mouseup="stopChangeQty"
+                          @touchstart.prevent="startChangeQty(index, 1)" 
+                          @touchend="stopChangeQty">
+                    <i class="fa-solid fa-plus"></i>
+                  </button>
+                </div>
+                <div v-if="item.isRedemption" class="text-center text-danger" style="font-size: 0.7rem; font-weight: bold;">
+                  贈品數量固定
+                </div>
+              </td>
+              <td class="text-end" style="width: 20%">
+                <div v-if="mode === 'sales'" :class="{'text-decoration-line-through text-muted': item.isRedemption}">
+                  ${{ item.price * item.qty }}
+                </div>
+                <div v-if="item.isRedemption" class="text-danger small fw-bold">FREE</div>
+              </td>
+              <td style="width: 5%">
+                 <button v-if="!item.isAutoAdded" class="btn btn-link text-danger p-0" @click="removeFromCart(index)"><i class="fa-solid fa-times"></i></button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cart-footer" v-if="mode === 'sales'">
+        
+        <div class="form-check p-2 border rounded bg-white mb-2">
+           <input class="form-check-input me-2" type="checkbox" v-model="hasStudentId" id="studentCheck">
+           <label class="form-check-label fw-bold text-primary" for="studentCheck"><i class="fa-solid fa-id-card"></i> 學生證優惠 (折1hr設備或綁定耗材)</label>
+        </div>
+        
+        <div class="input-group input-group-sm mb-2">
+           <span class="input-group-text"><i class="fa-solid fa-ticket"></i></span>
+           <input type="text" class="form-control" v-model="couponInput" placeholder="輸入折價券代碼..." @keyup.enter="addCoupon">
+           <button class="btn btn-outline-primary" @click="addCoupon" :disabled="checkingCoupon">
+             <span v-if="checkingCoupon" class="spinner-border spinner-border-sm"></span> 加入
+           </button>
+        </div>
+        <div v-if="coupons.length > 0" class="mb-3">
+           <div v-for="(cp, idx) in coupons" :key="idx" class="coupon-list-item">
+             <div class="d-flex align-items-center">
+               <span class="coupon-badge" :class="{'bg-equip': cp.type==='EQUIPMENT', 'bg-mat': cp.type==='MATERIAL', 'bg-redemption': cp.type==='REDEMPTION'}">
+                 {{ getCouponTypeLabel(cp.type) }}
+               </span>
+               <div class="d-flex flex-column ms-2">
+                 <strong>{{ cp.name }}</strong>
+                 <small class="text-muted" style="font-size:0.7em;">價值: ${{ cp.value }}</small>
+               </div>
+             </div>
+             <div class="ms-auto me-2 text-primary small fw-bold" v-if="cp.appliedVal > 0">
+                <span>-${{ cp.appliedVal }}</span>
+             </div>
+             <button class="btn btn-link btn-sm text-danger p-0" @click="removeCoupon(idx)"><i class="fa-solid fa-times"></i></button>
+           </div>
+        </div>
+
+        <div class="border-top pt-2 mb-2">
+          <div class="bill-row"><span>設備使用費</span><span>${{ pricing.rawEquip }}</span></div>
+          <div class="bill-row"><span>綁定耗材費</span><span>${{ pricing.rawBoundMat }}</span></div>
+          <div class="bill-row text-muted" v-if="pricing.rawGenMat > 0"><span style="font-size:0.9em">一般耗材費</span><span>${{ pricing.rawGenMat }}</span></div>
+          
+          <div class="bill-row text-success" v-if="pricing.matToEquipDisc > 0">
+            <span><i class="fa-solid fa-rotate-left"></i> 耗材抵設備</span><span>-${{ pricing.matToEquipDisc }}</span>
+          </div>
+          <div class="bill-row text-success" v-if="pricing.studentDisc > 0">
+            <span><i class="fa-solid fa-user-graduate"></i> 學生證折抵</span><span>-${{ pricing.studentDisc }}</span>
+          </div>
+
+          <div class="bill-row text-primary" v-if="pricing.totalCouponDisc > 0">
+            <span><i class="fa-solid fa-ticket"></i> 折價券扣抵</span><span>-${{ pricing.totalCouponDisc }}</span>
+          </div>
+        </div>
+        
+        <div class="bg-light p-2 rounded mb-2">
+            <div class="d-flex align-items-center mb-1">
+                <span class="badge bg-danger me-2">手動折抵</span>
+                <input type="number" class="form-control form-control-sm me-2" v-model.number="manualDiscount" placeholder="金額">
+            </div>
+            <input type="text" class="form-control form-control-sm" v-model="manualReason" placeholder="輸入折抵原因 (必填)">
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+          <div><div class="small text-muted">應付金額</div><div class="bill-total">${{ pricing.finalTotal }}</div></div>
+          <button class="btn btn-primary px-4 py-2 fw-bold rounded-pill shadow-sm" @click="submitOrder" :disabled="cart.length === 0 || processing">
+            <span v-if="processing"><i class="fa-solid fa-spinner fa-spin"></i> 處理中</span>
+            <span v-else>確認結帳 <i class="fa-solid fa-arrow-right ms-2"></i></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="cart-footer" v-if="mode === 'internal'">
+        <button class="btn btn-danger w-100 py-2 fw-bold" @click="submitOrder" :disabled="cart.length === 0 || !activityName || !internalDate || processing">
+           <i class="fa-solid fa-upload"></i> 確認領用 (扣庫存)
+        </button>
+      </div>
+
+    </div> 
+  </div>
+
+  <div class="mobile-bottom-bar">
+    <div class="d-flex flex-column justify-content-center">
+      <div class="fw-bold text-dark fs-6">
+        總計 <span class="text-danger fs-4">${{ pricing.finalTotal }}</span>
+      </div>
+      <small class="text-muted" style="font-size: 0.75rem;">{{ cartItemCount }} 件商品</small>
+    </div>
+    <button class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" @click="showMobileCart = !showMobileCart">
+      <i class="fa-solid fa-cart-shopping me-1"></i> 
+      {{ showMobileCart ? '關閉' : '查看明細 / 結帳' }}
+    </button>
+  </div>
+
+</div>
+
+<!-- 引入 LIFF SDK -->
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- 引入 Vue 3 -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<!-- 引入 自訂邏輯 -->
+<script src="app.js"></script>
+</body>
+</html>
