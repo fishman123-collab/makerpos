@@ -38,13 +38,9 @@ body { background-color: var(--bg-color); height: 100dvh; overflow: hidden; font
 .info-input-group { background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee; }
 .form-control-highlight { border: 1px solid #ced4da; font-weight: bold; color: #2d3436; }
 
-.cart-items { 
-    flex: 1; 
-    overflow-y: auto; 
-    padding: 0 15px;
-    min-height: 250px; 
-}
-.cart-footer { padding: 15px; background: #fdfdfd; border-top: 1px solid #dee2e6; max-height: 50vh; overflow-y: auto; }
+.cart-scroll-area { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+.cart-items { padding: 0 15px; }
+.cart-footer { padding: 15px; background: #fdfdfd; border-top: 1px solid #dee2e6; }
 
 .bill-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 1rem; color: #555; }
 .bill-total { font-size: 2rem; color: var(--accent-color); font-weight: bold; text-align: right; }
@@ -85,17 +81,9 @@ body { background-color: var(--bg-color); height: 100dvh; overflow: hidden; font
   }
   .cart-panel.show { transform: translateY(0) !important; }
   
+  .cart-scroll-area { padding-bottom: 80px; }
   .cart-header { flex-shrink: 0; border-bottom: 1px solid #dee2e6; }
-  .cart-items { 
-    flex: 1; 
-    overflow-y: auto; 
-    min-height: 35vh; 
-  }
   .cart-footer { 
-    flex-shrink: 0; 
-    max-height: 40vh; 
-    overflow-y: auto; 
-    padding-bottom: 80px; 
     padding-top: 10px;
     border-top: 2px solid #eee; 
   }
