@@ -212,29 +212,16 @@ const app = createApp({
             localStorage.removeItem('admin_user'); 
         }
       } else {
-        // 若無一般登入紀錄，檢查是否由 LIFF 開啟
+        // 初始化 LIFF，但不自動登入，讓使用者自己選擇
         this.initLoading = true;
         try {
           await liff.init({ liffId: LIFF_ID });
+          this.initLoading = false;
           
-          if (liff.isLoggedIn()) {
-             this.initMessage = "驗證館員身分中...";
-             const profile = await liff.getProfile();
-             const result = await callApi('verifyUser', { lineId: profile.userId });
-             
-             if (result.success) {
-                this.currentUser = result.user;
-                this.operatorName = this.currentUser.name;
-                this.initLoading = false; 
-                this.initData();
-             } else {
-                this.initMessage = result.message || "無系統存取權限！請聯絡管理員。";
-                alert(this.initMessage);
-                this.initLoading = false;
-             }
-          } else {
-             // 沒登入就解除載入畫面，顯示登入表單
-             this.initLoading = false;
+          // 如果剛從 LINE 登入跳轉回來，自動執行 lineLogin 驗證
+          if (sessionStorage.getItem('pending_line_login') === '1' && liff.isLoggedIn()) {
+             sessionStorage.removeItem('pending_line_login');
+             this.lineLogin();
           }
         } catch(err) {
            console.error(err);
@@ -260,9 +247,35 @@ const app = createApp({
       }
     },
 
-    lineLogin() {
-      if (!liff.isLoggedIn()) {
-         liff.login({ redirectUri: window.location.href });
+    async lineLogin() {
+      try {
+         if (!liff.id) {
+             await liff.init({ liffId: LIFF_ID });
+         }
+         if (!liff.isLoggedIn()) {
+             sessionStorage.setItem('pending_line_login', '1');
+             liff.login({ redirectUri: window.location.href });
+             return;
+         }
+         
+         this.initLoading = true;
+         this.initMessage = "驗證館員身分中...";
+         const profile = await liff.getProfile();
+         const result = await callApi('verifyUser', { lineId: profile.userId });
+         
+         if (result.success) {
+            this.currentUser = result.user;
+            this.operatorName = this.currentUser.name;
+            this.initLoading = false; 
+            this.initData();
+         } else {
+            this.initMessage = result.message || "無系統存取權限！請聯絡管理員。";
+            alert(this.initMessage);
+            this.initLoading = false;
+         }
+      } catch (e) {
+         alert("LINE 登入失敗: " + e.message);
+         this.initLoading = false;
       }
     },
 

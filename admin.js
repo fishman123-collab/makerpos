@@ -95,22 +95,13 @@ createApp({
             localStorage.removeItem('admin_user'); 
         }
       } else {
-          // 若無 localStorage，檢查是否是透過 LIFF 登入後重導回來
+          // 初始化 LIFF，但不自動登入，讓使用者自己選擇
           try {
               await liff.init({ liffId: LIFF_ID });
-              if (liff.isLoggedIn()) {
-                  this.loading = true;
-                  const profile = await liff.getProfile();
-                  const result = await callApi('verifyUser', { lineId: profile.userId });
-                  if (result.success) {
-                      this.currentUser = result.user;
-                      localStorage.setItem('admin_user', JSON.stringify(result.user));
-                      this.loadProducts();
-                  } else {
-                      alert(result.message || "您登入的 LINE 帳號無權限進入系統。");
-                      liff.logout();
-                  }
-                  this.loading = false;
+              
+              if (sessionStorage.getItem('admin_pending_line_login') === '1' && liff.isLoggedIn()) {
+                  sessionStorage.removeItem('admin_pending_line_login');
+                  this.lineLogin();
               }
           } catch (e) {
               console.error("LIFF init error", e);
@@ -130,9 +121,32 @@ createApp({
           alert(res.message);
       }
     },
-    lineLogin() {
-      if (!liff.isLoggedIn()) {
-         liff.login({ redirectUri: window.location.href });
+    async lineLogin() {
+      try {
+         if (!liff.id) {
+             await liff.init({ liffId: LIFF_ID });
+         }
+         if (!liff.isLoggedIn()) {
+             sessionStorage.setItem('admin_pending_line_login', '1');
+             liff.login({ redirectUri: window.location.href });
+             return;
+         }
+         
+         this.loading = true;
+         const profile = await liff.getProfile();
+         const result = await callApi('verifyUser', { lineId: profile.userId });
+         if (result.success) {
+             this.currentUser = result.user;
+             localStorage.setItem('admin_user', JSON.stringify(result.user));
+             this.loadProducts();
+         } else {
+             alert(result.message || "您登入的 LINE 帳號無權限進入系統。");
+             liff.logout();
+         }
+         this.loading = false;
+      } catch (e) {
+         alert("LINE 登入失敗: " + e.message);
+         this.loading = false;
       }
     },
     logout() {
