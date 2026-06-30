@@ -1,4 +1,4 @@
-const GAS_API_URL = "https://script.google.com/macros/s/AKfycby9csZsJaxn3X13T2UmCTT84oe4UgZA6Dk8YwLtzAJI7SLTV6TRpBxrEErWBEUZGYMy/exec";
+const GAS_API_URL = "在此貼上您部署好的_GAS_Web_App_URL";
 const LIFF_ID = "2008914129-GhF8Lno6";
 
 const { createApp } = Vue;
@@ -18,7 +18,6 @@ async function callApi(action, data = {}) {
     const response = await fetch(GAS_API_URL, {
       method: 'POST',
       body: JSON.stringify({ action: action, data: data }),
-      // 使用 text/plain 避免 OPTIONS Preflight 請求問題
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }
     });
     const result = await response.json();
@@ -77,14 +76,123 @@ const app = createApp({
       return list;
     },
     pricing() {
-       // ============================================
-       // 【請注意】由於您傳送的程式碼被系統截斷，這裡的計價邏輯遺失了！
-       // 請將您原本 pos.html 中 pricing computed 內的所有邏輯複製貼上來覆蓋這裡！
-       // ============================================
-       let finalTotal = 0;
-       this.cart.forEach(item => { finalTotal += (item.price * item.qty); });
-       return { finalTotal: finalTotal, rawEquip: 0, rawBoundMat: 0, rawGenMat: 0, matToEquipDisc: 0, studentDisc: 0, totalCouponDisc: 0 };
+        if (this.mode === 'internal') return { finalTotal: 0 };
+        let rawEquip = 0, rawBoundMat = 0, rawGenMat = 0;
+        const boundMatSkus = new Set(CONFIG.BINDING_GROUPS.map(g => g.target));
+        
+        this.cart.forEach(item => {
+          if (!item.isRedemption) {
+            const subtotal = item.price * item.qty;
+            if (item.category === CONFIG.CAT_EQUIPMENT) rawEquip += subtotal;
+            else if (boundMatSkus.has(item.sku)) rawBoundMat += subtotal;
+            else rawGenMat += subtotal;
+          }
+        });
+
+        const hasBindingGroup = rawBoundMat > 0;
+        let payEquip = rawEquip;
+        let payBound = rawBoundMat;
+        let payGen = rawGenMat;
+
+        let totalMatCredit = rawBoundMat + rawGenMat;
+        let matToEquipDisc = Math.min(payEquip, totalMatCredit);
+        payEquip -= matToEquipDisc;
+        
+        let equipDeficitAfterBound = Math.max(0, rawEquip - rawBoundMat);
+        let genUsedForEquip = Math.min(rawGenMat, equipDeficitAfterBound);
+        let genRemainingCredit = rawGenMat - genUsedForEquip;
+        
+        let genToBoundDisc = 0;
+        // [開關] 耗材抵綁定折扣：目前已利用 /* 與 */ 註解關閉
+        /*
+        if (hasBindingGroup && genRemainingCredit > 0) {
+           genToBoundDisc = Math.min(payBound, genRemainingCredit);
+           payBound -= genToBoundDisc;
+        }
+        */
+
+        let studentDisc = 0;
+        if (this.hasStudentId) {
+          let limit = CONFIG.PRICE_PER_HR;
+          let dedE = Math.min(payEquip, limit);
+          payEquip -= dedE;
+          limit -= dedE;
+          studentDisc += dedE;
+          if (hasBindingGroup && limit > 0) {
+            let dedM = Math.min(payBound, limit);
+            payBound -= dedM;
+            studentDisc += dedM;
+          }
+        }
+
+        let totalCouponDisc = 0;
+        let billBeforeCoupon = { equip: payEquip, bound: payBound, gen: payGen };
+        
+        this.coupons.forEach(cp => {
+          let val = cp.value;
+          let applied = 0;
+          if (cp.type === 'EQUIPMENT') {
+            let dedE = Math.min(payEquip, val);
+            payEquip -= dedE; val -= dedE; applied += dedE;
+            if (hasBindingGroup && val > 0) {
+               let dedM = Math.min(payBound, val);
+               payBound -= dedM; val -= dedM; applied += dedM;
+            }
+          } else if (cp.type === 'MATERIAL') {
+            if (val > 0 && payBound > 0) {
+              let dedB = Math.min(payBound, val);
+              payBound -= dedB; val -= dedB; applied += dedB;
+            }
+            if (val > 0 && payGen > 0) {
+              let dedG = Math.min(payGen, val);
+              payGen -= dedG; applied += dedG;
+            }
+          }
+          cp.appliedVal = applied; 
+          totalCouponDisc += applied;
+        });
+
+        let final = payEquip + payBound + payGen;
+        final = Math.max(0, final - this.manualDiscount);
+        return {
+          rawEquip, rawBoundMat, rawGenMat,
+          matToEquipDisc, genToBoundDisc,
+          studentDisc, totalCouponDisc,
+          billBeforeCoupon,
+          finalTotal: final
+        };
     }
+  },
+  watch: {
+    cart: {
+      handler(newCart) {
+        if (this.mode === 'internal') return; 
+        let targetQtyMap = {};
+        CONFIG.BINDING_GROUPS.forEach(group => {
+          let totalHours = 0;
+          newCart.forEach(item => { 
+              if (!item.isRedemption && group.triggers.includes(item.sku)) totalHours += item.qty; 
+          });
+          if (totalHours > 0) targetQtyMap[group.target] = { qty: totalHours, name: group.targetName };
+        });
+        CONFIG.BINDING_GROUPS.forEach(group => {
+           const targetSku = group.target;
+           const targetData = targetQtyMap[targetSku];
+           const idx = this.cart.findIndex(i => i.sku === targetSku);
+           if (targetData) {
+             if (idx === -1) this.addBoundItemToCart(targetSku, targetData.qty, targetData.name);
+             else {
+               if (this.cart[idx].qty !== targetData.qty) this.cart[idx].qty = targetData.qty;
+               this.cart[idx].isAutoAdded = true; 
+             }
+           } else {
+             if (idx !== -1 && this.cart[idx].isAutoAdded) this.cart.splice(idx, 1);
+           }
+        });
+        this.validateCoupons();
+      }, deep: true
+    },
+    hasStudentId() { this.validateCoupons(); }
   },
   async mounted() {
     await this.initLiff();
@@ -96,7 +204,6 @@ const app = createApp({
       try {
         await liff.init({ liffId: LIFF_ID });
         
-        // 如果還沒登入，就要求登入
         if (!liff.isLoggedIn()) {
            liff.login();
            return;
@@ -105,17 +212,15 @@ const app = createApp({
         this.initMessage = "驗證館員身分中...";
         const profile = await liff.getProfile();
         
-        // 呼叫後端驗證權限
         const result = await callApi('verifyUser', { lineId: profile.userId });
         
         if (result.success) {
            this.currentUser = result.user;
            this.operatorName = this.currentUser.name;
-           this.initLoading = false; // 驗證成功，關閉全螢幕載入畫面，直接進入 POS
-           this.loadInitialData();
+           this.initLoading = false; 
+           this.initData();
         } else {
            this.initMessage = "無系統存取權限！請聯絡管理員。";
-           // alert(result.message);
         }
       } catch(err) {
          console.error(err);
@@ -125,7 +230,7 @@ const app = createApp({
     },
 
     // 取得商品與預約清單
-    async loadInitialData() {
+    async initData() {
       this.loading = true;
       try {
          const [prodRes, bookingRes] = await Promise.all([
@@ -134,7 +239,14 @@ const app = createApp({
          ]);
          
          if (prodRes.success) this.products = prodRes.data;
-         if (bookingRes.success) this.todayBookings = bookingRes.data;
+         
+         if (bookingRes.success) {
+             if (!bookingRes.data || bookingRes.data.length === 0) {
+                 this.todayBookings = [{ name: "測試人員", display: "測試人員 (系統測試用)" }];
+             } else {
+                 this.todayBookings = bookingRes.data;
+             }
+         }
       } catch (err) {
          console.error("載入資料失敗", err);
       } finally {
@@ -158,7 +270,7 @@ const app = createApp({
       }
     },
 
-    // 處理掃描後的字串 (判斷是商品 SKU 還是折價券)
+    // 處理掃描後的字串
     handleScanResult(text) {
        text = text.trim();
        const product = this.products.find(p => String(p.sku).toUpperCase() === text.toUpperCase());
@@ -166,92 +278,233 @@ const app = createApp({
            this.addToCart(product);
            alert(`已加入購物車: ${product.name}`);
        } else {
-           // 找不到商品，當作折價券代碼試試看
            this.couponInput = text;
            this.addCoupon();
        }
     },
 
-    // 加入折價券 (修改為 callApi)
+    onCustomerSelect() {
+      console.log("已選取讀者:", this.customerName);
+    },
+    
+    selectBooking(name) {
+      this.customerName = name;
+      this.showBookingList = false;
+      this.onCustomerSelect(); 
+    },
+
+    hideBookingList() {
+      setTimeout(() => {
+        this.showBookingList = false;
+      }, 150);
+    },
+
+    validateCoupons() {
+      this.$nextTick(() => {
+          const validCoupons = this.coupons.filter(cp => {
+              if (cp.type === 'REDEMPTION') return true;
+              return cp.appliedVal > 0;
+          });
+          if (validCoupons.length < this.coupons.length) this.coupons = validCoupons;
+      });
+    },
+
+    getCouponTypeLabel(type) {
+      if(type === 'EQUIPMENT') return '設備券';
+      if(type === 'MATERIAL') return '耗材券';
+      if(type === 'REDEMPTION') return '兌換券';
+      return '通用';
+    },
+
     async addCoupon() {
-       if (!this.couponInput) return;
-       this.checkingCoupon = true;
-       const res = await callApi('checkCoupon', { code: this.couponInput });
-       if (res.success) {
-           this.coupons.push(res.data);
-           this.couponInput = '';
-       } else {
-           alert(res.message);
-       }
-       this.checkingCoupon = false;
+      if (!this.couponInput) return;
+      
+      const inputUpper = this.couponInput.trim().toUpperCase();
+      if (this.coupons.find(c => c.code.toUpperCase() === inputUpper)) {
+        return alert("此折價券已加入");
+      }
+      
+      this.checkingCoupon = true;
+      const res = await callApi('checkCoupon', { code: this.couponInput });
+      this.checkingCoupon = false;
+      
+      if (res.success) {
+        const type = res.data.type;
+        const bill = this.pricing.billBeforeCoupon;
+        if (type === 'EQUIPMENT' && bill.equip + bill.bound <= 0) return alert("設備與綁定耗材費已全數折抵完畢。");
+        if (type === 'MATERIAL' && bill.bound + bill.gen <= 0) return alert("耗材費用已全數折抵完畢。");
+        
+        this.coupons.push(res.data);
+        this.couponInput = '';
+        if (type === 'REDEMPTION') {
+          const keyword = res.data.name.replace("兌換券","").replace("兌換","").trim();
+          const targetProduct = this.products.find(p => p.name.includes(keyword));
+          if (targetProduct) {
+            this.addToCart(targetProduct, true, res.data.code);
+            alert(`已自動加入兌換商品：${targetProduct.name} (贈品)`);
+          } else alert(`請注意：找不到對應商品 "${keyword}"，請手動加入購物車以利核銷。`);
+        }
+      } else {
+        alert(res.message);
+      }
     },
 
-    // 結帳送出訂單 (修改為 callApi)
-    async submitOrder() {
-       this.processing = true;
-       
-       const orderData = { 
-           orderId: (this.mode === 'internal' ? 'USE-' : 'POS-') + new Date().getTime(),
-           customerName: this.mode === 'internal' ? this.activityName : this.customerName,
-           operatorName: this.operatorName,
-           items: this.cart,
-           coupons: this.coupons,
-           note: this.manualDiscount > 0 ? `手動折抵 ${this.manualDiscount} (${this.manualReason})` : ""
-       };
-
-       const res = await callApi('processOrder', orderData);
-       this.processing = false;
-       
-       if (res.success) {
-           alert("結帳完成！");
-           this.cart = [];
-           this.coupons = [];
-           this.customerName = '';
-           this.manualDiscount = 0;
-           this.manualReason = '';
-           this.showMobileCart = false; // 結帳完收起手機購物車
-       } else {
-           alert("結帳失敗：" + res.message);
-       }
+    removeCoupon(index) { 
+      const cp = this.coupons[index];
+      if (cp.type === 'REDEMPTION') {
+          const itemIdx = this.cart.findIndex(i => i.sourceCoupon === cp.code);
+          if (itemIdx !== -1) this.cart.splice(itemIdx, 1);
+      }
+      this.coupons.splice(index, 1); 
     },
 
-    // ============================================
-    // 【請注意】以下為基本購物車操作，由於您的原始碼被截斷，
-    // 請將您原本的 addToCart 等完整邏輯覆蓋這裡，以確保綁定耗材等功能正常運作！
-    // ============================================
-
-    addToCart(item) {
-       if(item.stock <= 0 && item.stock !== 999999999) {
-           alert("庫存不足");
-           return;
-       }
-       const exist = this.cart.find(c => c.sku === item.sku);
-       if (exist) { 
-           exist.qty++; 
-       } else { 
-           this.cart.push({...item, qty: 1}); 
-       }
+    addBoundItemToCart(sku, qty, defaultName) {
+      const prod = this.products.find(p => p.sku === sku);
+      const maxStock = prod ? prod.stock : 999;
+      const price = prod ? prod.price : CONFIG.PRICE_PER_HR;
+      const name = prod ? prod.name : defaultName;
+      if (maxStock > 0) this.cart.push({sku, name, price, qty, category: '耗材', isAutoAdded: true, maxStock});
     },
 
-    removeFromCart(index) { this.cart.splice(index, 1); },
-    removeCoupon(index) { this.coupons.splice(index, 1); },
-    
-    startChangeQty(index, delta) {
+    addToCart(item, isRedemption = false, sourceCoupon = null) {
+      if (item.stock <= 0 && item.stock !== 999999999) {
+          alert("庫存不足");
+          return;
+      }
+      if (isRedemption) {
+         this.cart.push({ ...item, qty: 1, isAutoAdded: false, maxStock: item.stock, isRedemption: true, sourceCoupon: sourceCoupon });
+      } else {
+         const existing = this.cart.find(i => i.sku === item.sku && !i.isRedemption);
+         if (existing) {
+           if (existing.qty < existing.maxStock || existing.maxStock === 999999999) existing.qty++;
+         } else {
+           this.cart.push({ ...item, qty: 1, isAutoAdded: false, maxStock: item.stock, isRedemption: false });
+         }
+      }
+    },
+
+    updateQty(index, change, isRapid = false) {
+      const item = this.cart[index];
+      if (item.isAutoAdded || item.isRedemption) return;
+      
+      const newQty = item.qty + change;
+      
+      if (newQty > item.maxStock && item.maxStock !== 999999999) {
+         if (!isRapid) alert("數量不能大於庫存");
+         return;
+      }
+      
+      if (newQty > 0) item.qty = newQty;
+      else {
+         this.removeFromCart(index);
+         this.stopChangeQty(); 
+      }
+    },
+
+    startChangeQty(index, change) {
+      this.updateQty(index, change);
+      this.stopChangeQty();
+      this.longPressTimer = setTimeout(() => {
+        this.longPressInterval = setInterval(() => {
+          this.updateQty(index, change, true);
+        }, 100);
+      }, 500);
+    },
+
+    stopChangeQty() {
+      clearTimeout(this.longPressTimer);
+      clearInterval(this.longPressInterval);
+      this.longPressTimer = null;
+      this.longPressInterval = null;
+    },
+
+    removeFromCart(index) { 
         const item = this.cart[index];
-        if (item.qty + delta > 0) item.qty += delta;
-        else if (item.qty + delta === 0) this.removeFromCart(index);
+        if (item.sourceCoupon) {
+            const cpIdx = this.coupons.findIndex(c => c.code === item.sourceCoupon);
+            if (cpIdx !== -1) this.coupons.splice(cpIdx, 1);
+        }
+        this.cart.splice(index, 1); 
     },
-    stopChangeQty() {},
-    
-    selectBooking(name) { this.customerName = name; this.showBookingList = false; },
-    hideBookingList() { setTimeout(() => this.showBookingList = false, 200); },
-    getCouponTypeLabel(type) { 
-        if(type==='EQUIPMENT') return '設備';
-        if(type==='MATERIAL') return '耗材';
-        if(type==='REDEMPTION') return '兌換';
-        return type; 
+
+    async submitOrder() {
+      if (!this.operatorName) return alert("請輸入經手人");
+      if (!this.customerName) return alert("請輸入讀者/領用人");
+      if (this.mode === 'internal' && (!this.activityName || !this.internalDate)) return alert("請填寫活動名稱與日期");
+      if (this.mode === 'sales' && this.manualDiscount > 0 && !this.manualReason) return alert("請輸入手動折抵原因");
+      
+      if (this.mode === 'sales' && !confirm(`總金額 $${this.pricing.finalTotal}，確認結帳？`)) return;
+
+      this.processing = true;
+      let noteStr = this.mode === 'sales' ? "" : `[館員領用] ${this.activityName}`;
+      if (this.mode === 'sales') {
+          if(this.hasStudentId) noteStr += "[學生證] ";
+          if(this.manualDiscount > 0) noteStr += `[手動折抵$${this.manualDiscount}: ${this.manualReason}] `;
+      }
+
+      const validCoupons = this.coupons.filter(c => c.appliedVal > 0 || c.type === 'REDEMPTION');
+      
+      const orderData = {
+        orderId: this.generateOrderId(),
+        items: JSON.parse(JSON.stringify(this.cart)), 
+        operatorName: this.operatorName,
+        customerName: this.customerName,
+        isInternal: this.mode === 'internal',
+        coupons: validCoupons, 
+        note: noteStr,
+        customDate: this.mode === 'internal' ? this.internalDate : null
+      };
+
+      if (this.mode === 'sales') {
+          const rawSum = this.pricing.rawEquip + this.pricing.rawBoundMat + this.pricing.rawGenMat;
+          const discountAmt = rawSum - this.pricing.finalTotal;
+          if (discountAmt > 0) {
+              orderData.items.push({ sku: 'DISCOUNT', name: '系統折抵合計', qty: 1, price: -discountAmt, total: -discountAmt });
+          }
+      } else {
+          orderData.items.forEach(i => { i.price = 0; i.total = 0; });
+      }
+
+      const res = await callApi('processOrder', orderData);
+      
+      if (res.success) {
+          alert(res.message);
+          this.cart = []; 
+          this.customerName = ''; 
+          this.coupons = []; 
+          this.manualDiscount = 0; 
+          this.manualReason = ''; 
+          this.hasStudentId = false;
+          this.activityName = ''; 
+          this.processing = false;
+          this.showMobileCart = false;
+
+          // 強制重新讀取庫存
+          this.loading = true;
+          this.initData();     
+      } else {
+          alert("結帳失敗: " + res.message);
+          this.processing = false;
+      }
     },
-    goToAdmin() { window.location.href = "?p=admin"; } // 注意：後台需要另外處理
+
+    generateOrderId() {
+      const d = new Date();
+      const dateStr = d.toISOString().slice(0,10).replace(/-/g,'');
+      return (this.mode === 'internal' ? 'INT-' : '') + dateStr + '-' + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    },
+
+    logout() {
+      if(confirm("確定要登出並關閉視窗嗎？")) {
+          liff.closeWindow();
+      }
+    },
+
+    goToAdmin() {
+      // 後台由於還在 GAS 裡面，這裡跳轉需包含完整的 API 網址，並加上 ?p=admin
+      alert("即將為您導向至後台系統...");
+      window.location.href = GAS_API_URL + "?p=admin";
+    }
   }
 });
 
