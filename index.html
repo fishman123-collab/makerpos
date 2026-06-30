@@ -18,6 +18,24 @@
     <h4 class="text-secondary fw-bold">{{ initMessage }}</h4>
   </div>
 
+  <!-- 登入畫面 -->
+  <div v-else-if="!currentUser" class="d-flex justify-content-center align-items-center" style="height: 100vh; background-color: #f0f2f5;">
+    <div class="card p-4 shadow-sm" style="width: 100%; max-width: 400px; border-radius: 12px; border: none;">
+      <h3 class="text-center mb-4 text-secondary"><i class="fa-solid fa-cash-register"></i> POS 系統登入</h3>
+      <button class="btn btn-success w-100 py-2 fw-bold mb-3" @click="lineLogin">
+        <i class="fa-brands fa-line fa-lg me-2"></i> LINE 登入
+      </button>
+      <div class="text-center text-muted small">或使用帳號密碼</div>
+      <form @submit.prevent="login" class="mt-2">
+        <input type="email" class="form-control mb-2" v-model="loginForm.email" placeholder="Email" required>
+        <input type="password" class="form-control mb-3" v-model="loginForm.password" placeholder="Password" required>
+        <button class="btn btn-secondary w-100 btn-sm" type="submit">一般登入</button>
+      </form>
+    </div>
+  </div>
+
+  <div v-else class="h-100">
+
   <div class="backdrop" :class="{show: showMobileCart}" @click="showMobileCart = false"></div>
 
   <div class="row g-0">
@@ -278,7 +296,6 @@
       {{ showMobileCart ? '關閉' : '查看明細 / 結帳' }}
     </button>
   </div>
-
 </div>
 
 <!-- 引入 LIFF SDK -->

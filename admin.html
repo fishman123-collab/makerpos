@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>後台管理系統</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    body { background-color: #f0f2f5; font-family: "Microsoft JhengHei", sans-serif; }
+    .card-login { border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-radius: 12px; }
+    .nav-link { color: #495057; cursor: pointer; font-weight: 500; }
+    .nav-link.active { color: #0d6efd; font-weight: bold; border-bottom: 3px solid #0d6efd; background: transparent !important; }
+    .card-dashboard { border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius: 8px; background: white; }
+    
+    /* 訂單分組樣式 */
+    .order-group { border: 1px solid #dee2e6; margin-bottom: 15px; border-radius: 8px; overflow: hidden; background: white; }
+    .order-header { background-color: #f8f9fa; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dee2e6; }
+    .order-items-table td { border: none; padding: 5px 15px; }
+    .order-footer { padding: 10px 15px; background: #fff; text-align: right; border-top: 1px dashed #dee2e6; }
+    
+    /* 規費彈窗 */
+    .receipt-box { background: #eef2f5; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+    .receipt-title { font-size: 0.85rem; font-weight: bold; color: #555; margin-bottom: 5px; }
+    .copy-btn { font-size: 0.8rem; padding: 2px 8px; }
+  </style>
+</head>
+<body>
+
+<div id="app" class="container py-4">
+
+  <div v-if="loading" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.7);z-index:9999;display:flex;justify-content:center;align-items:center;">
+    <div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>
+  </div>
+  
+  <div v-if="!currentUser" class="row justify-content-center mt-5">
+    <div class="col-md-5 col-lg-4">
+      <div class="card card-login p-4">
+        <h3 class="text-center mb-4 text-secondary"><i class="fa-solid fa-user-shield"></i> 後台登入</h3>
+        <button class="btn btn-success w-100 py-2 fw-bold mb-3" @click="lineLogin">
+          <i class="fa-brands fa-line fa-lg me-2"></i> LINE 登入
+        </button>
+        <div class="text-center text-muted small">或使用帳號密碼</div>
+        <form @submit.prevent="login" class="mt-2">
+          <input type="email" class="form-control mb-2" v-model="loginForm.email" placeholder="Email" required>
+          <input type="password" class="form-control mb-3" v-model="loginForm.password" placeholder="Password" required>
+          <button class="btn btn-secondary w-100 btn-sm" type="submit">一般登入</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div v-else>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div>
+        <h4 class="fw-bold m-0"><i class="fa-solid fa-gears text-primary"></i> 創客空間後台</h4>
+        <small class="text-muted">Hello, {{ currentUser.name }}</small>
+      </div>
+      <div>
+        <button class="btn btn-outline-secondary btn-sm me-2" @click="goToPos">
+          <i class="fas fa-cash-register me-1"></i>回前台 POS
+        </button>
+        <button class="btn btn-outline-danger" @click="logout">登出</button>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><a class="nav-link" :class="{active: currentTab==='inbound'}" @click="currentTab='inbound'"><i class="fa-solid fa-truck-ramp-box"></i> 進貨入庫</a></li>
+      <li class="nav-item"><a class="nav-link" :class="{active: currentTab==='stocktake'}" @click="currentTab='stocktake'"><i class="fa-solid fa-clipboard-check"></i> 盤點修正</a></li>
+      <li class="nav-item"><a class="nav-link" :class="{active: currentTab==='orders'}" @click="loadOrders"><i class="fa-solid fa-file-invoice"></i> 訂單管理</a></li>
+    </ul>
+
+    <div v-if="currentTab === 'inbound'" class="card card-dashboard p-4">
+      <div class="row g-3 mb-3">
+        <div class="col-md-3">
+          <label class="form-label">核銷/進貨單號 (手填)</label>
+          <input type="text" class="form-control" v-model="inboundBatch.poNumber" placeholder="例如：112-05-A01">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">供應商</label>
+          <input type="text" class="form-control" v-model="inboundBatch.vendor">
+        </div>
+        <div class="col-md-6 text-end align-self-end">
+           <span class="text-muted small">請填寫左側單號後開始加入商品</span>
+        </div>
+      </div>
+      <hr>
+      
+      <div class="bg-light p-3 rounded mb-3 border">
+        <div class="d-flex justify-content-between mb-2">
+           <h6 class="fw-bold"><i class="fa-solid fa-cart-plus"></i> 加入進貨項目</h6>
+           <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="isNewProd" v-model="inboundItem.isNew">
+              <label class="form-check-label" for="isNewProd">這是新商品 (需建立資料)</label>
+           </div>
+        </div>
+        
+        <div class="row g-2">
+          <div class="col-md-4" v-if="!inboundItem.isNew">
+            <select class="form-select form-select-sm" v-model="inboundItem.selectedProduct" @change="fillProductInfo">
+              <option :value="null">-- 選擇現有商品 --</option>
+              <option v-for="p in products" :value="p">{{ p.name }} ({{ p.sku }})</option>
+            </select>
+          </div>
+          <div class="col-md-2" v-if="inboundItem.isNew"><input type="text" class="form-control form-control-sm" v-model="inboundItem.sku" placeholder="自訂SKU代碼"></div>
+          <div class="col-md-2" v-if="inboundItem.isNew"><input type="text" class="form-control form-control-sm" v-model="inboundItem.name" placeholder="商品名稱"></div>
+          <div class="col-md-2" v-if="inboundItem.isNew"><input type="text" class="form-control form-control-sm" v-model="inboundItem.category" placeholder="分類"></div>
+
+          <div class="col-md-2"><input type="number" class="form-control form-control-sm" v-model.number="inboundItem.qty" placeholder="數量"></div>
+          <div class="col-md-2"><input type="number" class="form-control form-control-sm" v-model.number="inboundItem.cost" placeholder="成本單價"></div>
+          <div class="col-md-2">
+            <button class="btn btn-primary btn-sm w-100" @click="addToBatch" :disabled="!canAddToBatch">加入清單</button>
+          </div>
+        </div>
+      </div>
+
+      <table class="table table-sm table-bordered" v-if="inboundBatch.items.length > 0">
+        <thead class="table-light"><tr><th>SKU</th><th>名稱</th><th>數量</th><th>成本</th><th>小計</th><th>操作</th></tr></thead>
+        <tbody>
+          <tr v-for="(item, idx) in inboundBatch.items" :key="idx">
+            <td>{{ item.sku }} <span v-if="item.isNew" class="badge bg-warning text-dark">新</span></td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.qty }}</td>
+            <td>{{ item.cost }}</td>
+            <td>{{ item.qty * item.cost }}</td>
+            <td><button class="btn btn-link text-danger p-0" @click="inboundBatch.items.splice(idx, 1)"><i class="fa-solid fa-times"></i></button></td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div class="text-end" v-if="inboundBatch.items.length > 0">
+        <button class="btn btn-success" @click="submitBatchInbound" :disabled="loading || !inboundBatch.poNumber">
+          <i class="fa-solid fa-paper-plane"></i> 確認送出進貨單
+        </button>
+      </div>
+    </div>
+
+    <div v-if="currentTab === 'stocktake'" class="card card-dashboard p-4">
+      <div class="input-group input-group-sm mb-3" style="max-width: 300px;">
+        <span class="input-group-text"><i class="fa-solid fa-search"></i></span>
+        <input type="text" class="form-control" v-model="searchQuery" placeholder="搜尋商品...">
+      </div>
+      <div style="height: 60vh; overflow-y: auto;">
+        <table class="table table-sm table-hover align-middle">
+          <thead class="table-light sticky-top">
+            <tr><th>SKU</th><th>名稱</th><th>系統庫存</th><th>實際盤點</th><th>差異</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in filteredProducts" :key="p.sku">
+              <td class="small">{{ p.sku }}</td>
+              <td>{{ p.name }}</td>
+              <td class="text-center">
+  {{ p.stock === 999999999 ? '以現場庫存為準' : p.stock }}
+</td>
+              <td><input type="number" class="form-control form-control-sm" v-model.number="p.actualStock" placeholder="未盤點" style="width:100px;"></td>
+              <td class="fw-bold" :class="getDiffClass(p)">{{ getDiff(p) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="text-end mt-3">
+        <button class="btn btn-warning" @click="submitStocktake" :disabled="loading">送出盤點修正</button>
+      </div>
+    </div>
+
+    <div v-if="currentTab === 'orders'">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="m-0 text-secondary">最近交易</h5>
+        <button class="btn btn-sm btn-outline-primary" @click="loadOrders">重新整理</button>
+      </div>
+      
+      <div v-if="loading" class="text-center py-5">載入中...</div>
+      <div v-else style="height: 70vh; overflow-y: auto;">
+        
+        <div v-for="order in groupedOrders" :key="order.id" class="order-group">
+          <div class="order-header">
+            <div>
+              <strong>{{ order.id }}</strong>
+              <span class="ms-2 badge bg-light text-dark border">{{ order.date }}</span>
+              <span class="ms-2 text-primary">{{ order.customer }}</span>
+            </div>
+            <div>
+              <button class="btn btn-sm btn-info text-white me-2" @click="openReceiptModal(order)">
+                <i class="fa-solid fa-file-invoice-dollar"></i> 規費開立
+              </button>
+              <button class="btn btn-sm btn-outline-danger" @click="voidOrder(order.id)">
+                作廢
+              </button>
+            </div>
+          </div>
+          
+          <table class="table table-sm mb-0 order-items-table">
+            <tbody>
+              <tr v-for="item in order.items">
+                <td>
+                   <span v-if="item.sku === 'SYSTEM_DISC'" class="text-success fst-italic">{{ item.name }}</span>
+                   <span v-else>{{ item.name }}</span>
+                </td>
+                <td class="text-end" style="width: 100px;">
+                   <span v-if="item.qty" class="badge bg-secondary rounded-pill me-2">x{{ item.qty }}</span>
+                </td>
+                <td class="text-end fw-bold" style="width: 100px;">
+  <span v-if="item.isGift || (item.note && item.note.includes('兌換贈品'))" class="text-danger">FREE</span>
+  <span v-else>${{ item.total }}</span>
+</td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <div class="order-footer">
+            <span class="text-danger small me-3 fw-bold" v-if="order.coupon">
+              <i class="fa-solid fa-ticket"></i> 折價券: {{ order.coupon }}
+            </span>
+            <span class="text-muted small me-3" v-if="order.note">備註: {{ order.note }}</span>
+            <span class="fw-bold fs-5">總計: ${{ order.totalAmount }}</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <div v-if="showReceiptModal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;">
+    <div class="card p-4" style="width: 500px; max-height: 90vh; overflow-y: auto;">
+      <h5 class="mb-3">規費開立輔助 - {{ receiptData.id }}</h5>
+      
+      <div class="mb-3">
+        <label class="form-label small">繳款人姓名</label>
+        <div class="input-group input-group-sm">
+          <input type="text" class="form-control" :value="receiptData.customer" readonly>
+          <button class="btn btn-outline-secondary" @click="copyText(receiptData.customer)">複製</button>
+        </div>
+      </div>
+
+      <div class="receipt-box" v-if="receiptData.fee003 > 0">
+        <div class="d-flex justify-content-between">
+           <div class="receipt-title text-primary">項目 003: 場地設施使用費</div>
+           <div class="fw-bold">${{ receiptData.fee003 }}</div>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+           <input type="text" class="form-control" :value="receiptData.fee003" readonly>
+           <button class="btn btn-outline-primary copy-btn" @click="copyText(receiptData.fee003)">複製金額</button>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+           <textarea class="form-control" rows="2" readonly>{{ receiptData.note003 }}</textarea>
+           <button class="btn btn-outline-primary copy-btn" @click="copyText(receiptData.note003)">複製備註</button>
+        </div>
+      </div>
+
+      <div class="receipt-box" v-if="receiptData.fee004 > 0">
+        <div class="d-flex justify-content-between">
+           <div class="receipt-title text-success">項目 004: 其他雜項收入 (耗材)</div>
+           <div class="fw-bold">${{ receiptData.fee004 }}</div>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+           <input type="text" class="form-control" :value="receiptData.fee004" readonly>
+           <button class="btn btn-outline-success copy-btn" @click="copyText(receiptData.fee004)">複製金額</button>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+           <textarea class="form-control" rows="3" readonly>{{ receiptData.note004 }}</textarea>
+           <button class="btn btn-outline-success copy-btn" @click="copyText(receiptData.note004)">複製備註</button>
+        </div>
+      </div>
+
+      <div class="text-end mt-3">
+        <a href="https://money.tntb.gov.tw/tbmo/" target="_blank" class="btn btn-warning btn-sm me-2">前往規費系統</a>
+        <button class="btn btn-secondary btn-sm" @click="showReceiptModal = false">關閉</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 引入 LIFF SDK -->
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

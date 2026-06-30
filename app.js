@@ -37,6 +37,7 @@ const app = createApp({
       processing: false, 
       checkingCoupon: false,
       currentUser: null,    
+      loginForm: { email: '', password: '' },
       showMobileCart: false, 
       todayBookings: [],
       products: [], 
@@ -195,37 +196,73 @@ const app = createApp({
     hasStudentId() { this.validateCoupons(); }
   },
   async mounted() {
-    await this.initLiff();
+    await this.checkLoginStatus();
   },
   methods: {
-    // 初始化 LIFF 並自動登入
-    async initLiff() {
+    // 檢查登入狀態 (包含 localStorage 或 LIFF)
+    async checkLoginStatus() {
+      const stored = localStorage.getItem('admin_user');
+      if (stored) {
+        try { 
+            this.currentUser = JSON.parse(stored);
+            this.operatorName = this.currentUser.name;
+            this.initLoading = false;
+            this.initData();
+        } catch(e) { 
+            localStorage.removeItem('admin_user'); 
+        }
+      } else {
+        // 若無一般登入紀錄，檢查是否由 LIFF 開啟
+        this.initLoading = true;
+        try {
+          await liff.init({ liffId: LIFF_ID });
+          
+          if (liff.isLoggedIn()) {
+             this.initMessage = "驗證館員身分中...";
+             const profile = await liff.getProfile();
+             const result = await callApi('verifyUser', { lineId: profile.userId });
+             
+             if (result.success) {
+                this.currentUser = result.user;
+                this.operatorName = this.currentUser.name;
+                this.initLoading = false; 
+                this.initData();
+             } else {
+                this.initMessage = "無系統存取權限！請聯絡管理員。";
+                alert(this.initMessage);
+                this.initLoading = false;
+             }
+          } else {
+             // 沒登入就解除載入畫面，顯示登入表單
+             this.initLoading = false;
+          }
+        } catch(err) {
+           console.error(err);
+           this.initLoading = false;
+        }
+      }
+    },
+
+    async login() {
       this.initLoading = true;
-      try {
-        await liff.init({ liffId: LIFF_ID });
-        
-        if (!liff.isLoggedIn()) {
-           liff.login();
-           return;
-        }
-        
-        this.initMessage = "驗證館員身分中...";
-        const profile = await liff.getProfile();
-        
-        const result = await callApi('verifyUser', { lineId: profile.userId });
-        
-        if (result.success) {
-           this.currentUser = result.user;
-           this.operatorName = this.currentUser.name;
-           this.initLoading = false; 
-           this.initData();
-        } else {
-           this.initMessage = "無系統存取權限！請聯絡管理員。";
-        }
-      } catch(err) {
-         console.error(err);
-         let errorMsg = err.message ? err.message : JSON.stringify(err);
-         this.initMessage = "LIFF 錯誤: " + errorMsg;
+      this.initMessage = "登入中...";
+      const res = await callApi('verifyAdminLogin', { email: this.loginForm.email, password: this.loginForm.password });
+      
+      if (res.success) { 
+          this.currentUser = res.user; 
+          this.operatorName = this.currentUser.name;
+          localStorage.setItem('admin_user', JSON.stringify(res.user)); 
+          this.initLoading = false;
+          this.initData(); 
+      } else {
+          this.initLoading = false;
+          alert(res.message);
+      }
+    },
+
+    lineLogin() {
+      if (!liff.isLoggedIn()) {
+         liff.login({ redirectUri: window.location.href });
       }
     },
 
@@ -495,15 +532,15 @@ const app = createApp({
     },
 
     logout() {
-      if(confirm("確定要登出並關閉視窗嗎？")) {
-          liff.closeWindow();
+      if(confirm("確定要登出嗎？")) {
+          this.currentUser = null;
+          localStorage.removeItem('admin_user');
+          if(liff.isLoggedIn()) liff.logout();
       }
     },
 
     goToAdmin() {
-      // 後台由於還在 GAS 裡面，這裡跳轉需包含完整的 API 網址，並加上 ?p=admin
-      alert("即將為您導向至後台系統...");
-      window.location.href = GAS_API_URL + "?p=admin";
+      window.location.href = "admin.html";
     }
   }
 });
