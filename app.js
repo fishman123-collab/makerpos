@@ -1,4 +1,4 @@
-const GAS_API_URL = "在此貼上您部署好的_GAS_Web_App_URL";
+const GAS_API_URL = "https://script.google.com/macros/s/AKfycby9csZsJaxn3X13T2UmCTT84oe4UgZA6Dk8YwLtzAJI7SLTV6TRpBxrEErWBEUZGYMy/exec";
 const LIFF_ID = "2008914129-GhF8Lno6";
 
 const { createApp } = Vue;
