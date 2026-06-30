@@ -7,8 +7,8 @@ async function callApi(action, data = {}) {
   try {
     const response = await fetch(GAS_API_URL, {
       method: 'POST',
-      body: JSON.stringify({ action: action, data: data }),
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      body: new URLSearchParams({ action: action, data: JSON.stringify(data) }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
     const result = await response.json();
     return result;
@@ -133,8 +133,16 @@ createApp({
          }
          
          this.loading = true;
-         const profile = await liff.getProfile();
-         const result = await callApi('verifyUser', { lineId: profile.userId });
+         let lineId = null;
+         const idToken = liff.getDecodedIDToken();
+         if (idToken && idToken.sub) {
+             lineId = idToken.sub;
+         } else {
+             const profile = await liff.getProfile();
+             lineId = profile.userId;
+         }
+         
+         const result = await callApi('verifyUser', { lineId: lineId });
          if (result.success) {
              this.currentUser = result.user;
              localStorage.setItem('admin_user', JSON.stringify(result.user));

@@ -17,8 +17,8 @@ async function callApi(action, data = {}) {
   try {
     const response = await fetch(GAS_API_URL, {
       method: 'POST',
-      body: JSON.stringify({ action: action, data: data }),
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      body: new URLSearchParams({ action: action, data: JSON.stringify(data) }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
     const result = await response.json();
     return result;
@@ -38,6 +38,8 @@ const app = createApp({
       checkingCoupon: false,
       currentUser: null,    
       loginForm: { email: '', password: '' },
+      showScanner: false,
+      html5QrcodeScanner: null,
       showMobileCart: false, 
       todayBookings: [],
       products: [], 
@@ -260,8 +262,16 @@ const app = createApp({
          
          this.initLoading = true;
          this.initMessage = "驗證館員身分中...";
-         const profile = await liff.getProfile();
-         const result = await callApi('verifyUser', { lineId: profile.userId });
+         let lineId = null;
+         const idToken = liff.getDecodedIDToken();
+         if (idToken && idToken.sub) {
+             lineId = idToken.sub;
+         } else {
+             const profile = await liff.getProfile();
+             lineId = profile.userId;
+         }
+         
+         const result = await callApi('verifyUser', { lineId: lineId });
          
          if (result.success) {
             this.currentUser = result.user;
@@ -304,20 +314,35 @@ const app = createApp({
       }
     },
 
-    // 呼叫 LINE LIFF 原生掃描功能
-    async scanCode() {
-      if (!liff.isInClient() || !liff.scanCodeV2) {
-          alert("請在手機 LINE App 內使用此功能，或您的設備不支援掃碼。");
-          return;
-      }
-      try {
-          const result = await liff.scanCodeV2();
-          if (result && result.value) {
-              this.handleScanResult(result.value);
-          }
-      } catch (error) {
-          console.error("Scan error", error);
-      }
+    // 呼叫 HTML5 QR Code 掃描器
+    scanCode() {
+        this.showScanner = true;
+        this.$nextTick(() => {
+            if (!this.html5QrcodeScanner) {
+                this.html5QrcodeScanner = new Html5Qrcode("reader");
+            }
+            this.html5QrcodeScanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    this.closeScanner();
+                    this.handleScanResult(decodedText);
+                },
+                (errorMessage) => {
+                    // 掃描過程中的錯誤(如未對焦)，忽略即可
+                }
+            ).catch((err) => {
+                alert("無法啟動相機: " + err);
+                this.closeScanner();
+            });
+        });
+    },
+
+    closeScanner() {
+        if (this.html5QrcodeScanner) {
+            this.html5QrcodeScanner.stop().catch(e => console.error(e));
+        }
+        this.showScanner = false;
     },
 
     // 處理掃描後的字串
