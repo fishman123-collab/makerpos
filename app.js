@@ -119,7 +119,8 @@ const app = createApp({
         }
       } catch(err) {
          console.error(err);
-         this.initMessage = "LIFF 初始化失敗，請確認在 LINE 內開啟";
+         let errorMsg = err.message ? err.message : JSON.stringify(err);
+         this.initMessage = "LIFF 錯誤: " + errorMsg;
       }
     },
 
